@@ -1,8 +1,16 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import postgres from 'postgres';
 import { invoices, customers, revenue, users } from '../lib/placeholder-data';
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+const sql = postgres(process.env.POSTGRES_URL_NON_POOLING!, { 
+  ssl: 'require',
+  max: 1,                // Reduce connection pool size
+  idle_timeout: 20,      // Reduce idle timeout
+  connect_timeout: 30,   // Increase connection timeout
+  connection: {
+    keepAlive: true     // Enable keep-alive
+  }
+});
 
 async function seedUsers() {
   await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
@@ -103,15 +111,20 @@ async function seedRevenue() {
 
 export async function GET() {
   try {
-    const result = await sql.begin((sql) => [
-      seedUsers(),
-      seedCustomers(),
-      seedInvoices(),
-      seedRevenue(),
-    ]);
+    console.log('Database URL:', process.env.POSTGRES_URL);
+    
+    // Execute each seed function sequentially instead of all at once
+    await seedUsers();
+    await seedCustomers();
+    await seedInvoices();
+    await seedRevenue();
 
     return Response.json({ message: 'Database seeded successfully' });
   } catch (error) {
+    console.error('Database error:', error);
     return Response.json({ error }, { status: 500 });
+  } finally {
+    // Close the connection pool
+    await sql.end();
   }
 }
